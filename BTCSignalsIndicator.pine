@@ -1,0 +1,297 @@
+//@version=5
+indicator("Paulo's Signals Indicator", overlay=true)
+
+////////////
+// PARAMS //
+////////////
+
+bearColor = color.rgb(226, 21, 21)
+bullColor = color.rgb(32, 167, 37)
+bearColorLight = color.rgb(202, 102, 102)
+bullColorLight = color.rgb(94, 177, 95)
+bearAlertColor = color.rgb(253, 152, 0)
+bearAlertColorLight = color.rgb(255, 199, 115)
+textColor = color.white
+sellText = "Sell"
+buyText = "Buy"
+
+//------------------------------------------------------------------------------
+///////////////
+// FUNCTIONS //
+///////////////
+
+// function to avoid ploting multiple times in minor timeframes when it has a fixed timeframe for the serie
+plotOnce(func) =>
+    ta.change(func) and func
+
+// Function to get the number of days for the current timeframe
+getDaysForTimeframe() =>
+    if (timeframe.isintraday)
+        timeframe.multiplier / 1440  // Convert minutes to days
+    else if (timeframe.isdaily)
+        timeframe.multiplier
+    else if (timeframe.isweekly)
+        timeframe.multiplier * 7
+    else if (timeframe.ismonthly)
+        timeframe.multiplier * 30
+    else
+        na
+
+daysForTimeframe = getDaysForTimeframe()
+
+//------------------------------------------------------------------------------
+//////////
+// EMAs //
+//////////
+
+ema1 = ta.ema(close, input(21, title="EMA 1"))
+ema2 = ta.ema(close, input(50, title="EMA 2"))
+ema3 = ta.ema(close, input(100, title="EMA 3"))
+ema4 = ta.ema(close, input(200, title="EMA 4"))
+
+plot(ema1, color=color.orange, linewidth=1, title="EMA 1")
+plot(ema2, color=color.red, linewidth=1, title="EMA 2")
+plot(ema3, color=color.blue, linewidth=2, title="EMA 3")
+plot(ema4, color=color.gray, linewidth=2, title="EMA 4")
+
+//------------------------------------------------------------------------------
+//////////////////////////
+// WEEKLY EMA CROSSOVER //
+//////////////////////////
+
+ema21 = ta.ema(close, 21)
+ema50 = ta.ema(close, 50)
+ema100 = ta.ema(close, 100)
+ema200 = ta.ema(close, 200)
+
+ema21CrossOver50_w = request.security(syminfo.tickerid, "W", ta.crossover(ema21, ema50))
+ema21CrossUnder50_w = request.security(syminfo.tickerid, "W", ta.crossunder(ema21, ema50))
+
+//------------------------------------------------------------------------------
+//////////////////////
+/// SIDEWAY MARKET ///
+//////////////////////
+
+// Define an adjustable tolerance percentage to determine the "sideways range"
+tolerance = input.float(5.0, "Sideway Tolerance (%)", minval=0.5, maxval=10.0)
+toleranceDecimal = tolerance / 100
+
+// Calculate the upper and lower limits of the sideways range
+ema50upperLimit_2w = request.security(syminfo.tickerid, "2W", ema50 * (1 + toleranceDecimal))
+ema50lowerLimit_2w = request.security(syminfo.tickerid, "2W", ema50 * (1 - toleranceDecimal))
+
+// Plot the range limits
+// plot(ema50upperLimit_2w, color=color.gray, title="Upper Limit", style=plot.style_line)
+// plot(ema50lowerLimit_2w, color=color.gray, title="Lower Limit", style=plot.style_line)
+
+// Check if the price is within the range
+sidewaysMarket_2w = request.security(syminfo.tickerid, "2W", close >= ema50lowerLimit_2w and close <= ema50upperLimit_2w or (not ta.falling(ema50,3) and not ta.rising(ema50,3)))
+
+//------------------------------------------------------------------------------
+
+// Plotting Weekly EMAs cross
+plotshape(
+	 series=sidewaysMarket_2w ? na : plotOnce(ema21CrossOver50_w),
+	 title="EMA CrossOver (W)",
+	 text=buyText,
+	 style=shape.labelup,
+	 location=location.belowbar,
+	 color=bullColor,
+	 textcolor=textColor
+	 )
+
+plotshape(
+	 series=sidewaysMarket_2w ? na : plotOnce(ema21CrossUnder50_w), 
+	 title="EMA CrossUnder (W)",
+	 text=sellText,
+	 style=shape.labeldown, 
+	 location=location.abovebar, 
+	 color=bearColor,
+	 textcolor=textColor
+	 )
+
+
+// Plotting bear market best buy region
+priceUnderEma200_w = request.security(syminfo.tickerid, "W", close < ema200)
+bgcolor(priceUnderEma200_w ? color.new(color.green, 90) : na, title = "Best Bear Market buy Zone")
+
+//------------------------------------------------------------------------------
+/////////
+// RSI //
+/////////
+
+rsi_length = 14
+rsi = ta.rsi(close, rsi_length)
+
+// RSI oversold / overbought
+// INPUTS
+rsiOverBoughtThreshold = input.float(defval = 70, title = "RSI Overbought")
+rsiOverSoldThreshold = input.float(defval = 30, title = "RSI Oversold")
+rsiOverBought = rsi >= rsiOverBoughtThreshold
+rsiOverSold = rsi <= rsiOverSoldThreshold
+
+// RSI Moves
+rsiRising = ta.rising(rsi,2)
+rsiFalling = ta.falling(rsi,2)
+
+//------------------------------------------------------------------------------
+///////////////////
+// STOCHSTIC RSI //
+///////////////////
+
+stoch_length = 14
+stochK_smooth = 3
+stochD_smooth = 3
+
+rsi_low = ta.lowest(rsi, stoch_length)
+rsi_high = ta.highest(rsi, stoch_length)
+stoch_rsi = (rsi - rsi_low) / (rsi_high - rsi_low)
+
+// Stochastic K & D
+stochK = ta.sma(stoch_rsi * 100, stochK_smooth)
+stochD = ta.sma(stochK, stochD_smooth)
+
+// Stochastic RSI Oversold / Overbought
+stochOverBoughtThreshold = input.float(defval = 80, title = "Stoch Overbought")
+stochOverSoldThreshold = input.float(defval = 20, title = "Stoch Oversold")
+stochOverBought = stochK >= stochOverBoughtThreshold
+stochOverSold = stochK <= stochOverSoldThreshold
+
+// Stochastic Moves
+safeOver20Cross = 23
+safeUnder80Cros = 77
+
+stochRising = ta.rising(stochK,2)
+stochFalling = ta.falling(stochK,2)
+stochBelow80 = stochK < 80
+stochCrossUnder80 = ta.crossunder(stochK, 80)
+stochCrossOver20 = ta.crossover(stochK, safeOver20Cross)
+stochKCrossDownD = ta.crossunder(stochK, stochD)
+
+// // Plot RSI Overbought/Oversold Signals
+// plotshape(series=rsiOverBought, style=shape.triangledown, location=location.abovebar, color=color.orange, title="RSI Overbought", size=size.tiny)
+// plotshape(series=rsiOverSold, style=shape.triangleup, location=location.belowbar, color=color.blue, title="RSI Oversold", size=size.tiny)
+
+// // Plot Stochastic RSI Overbought/Oversold Signals
+// plotshape(series=stochOverBought, style=shape.triangledown, location=location.abovebar, color=color.purple, title="Stoch RSI Overbought", size=size.tiny)
+// plotshape(series=stochOverSold, style=shape.triangleup, location=location.belowbar, color=color.aqua, title="Stoch RSI Oversold", size=size.tiny)
+
+// Plot weekly RSI Overbought/Oversold Signals
+// plotshape(series=rsiOverBought_w, style=shape.triangledown, location=location.abovebar, color=color.orange, title="RSI Overbought (w)", size=size.tiny)
+// plotshape(series=rsiOverSold_w, style=shape.triangleup, location=location.belowbar, color=color.blue, title="RSI Oversold (w)", size=size.tiny)
+
+// Plot weekly Stochastic RSI Overbought/Oversold Signals
+// plotshape(series=stochOverBought_w, style=shape.triangledown, location=location.abovebar, color=color.purple, title="Stoch RSI Overbought (W)", size=size.tiny)
+// plotshape(series=stochOverSold_w, style=shape.triangleup, location=location.belowbar, color=color.aqua, title="Stoch RSI Oversold (W)", size=size.tiny)
+
+// rsiOverBoughtValueThreshold_w = input.float(defval = 75, title = "RSI OverBought value Threshold (2W)", tooltip = "Threshold to find for RSI crossing over this value on 2W timeframe")
+// rsiOverBoughtValueThreshold_m = input.float(defval = 70, title = "RSI OverBought value Threshold (M)", tooltip = "Threshold to find for RSI crossing over this value on 2W timeframe")
+// rsiOverBought_2w = request.security(syminfo.tickerid, "2W", rsi >= rsiOverBoughtValueThreshold_w)
+// rsiOverBought_m = request.security(syminfo.tickerid, "M", rsi >= rsiOverBoughtValueThreshold_m)
+
+// finding high peaks on MENSAL chart with rsi overbought and stock losing overbought region (ideal setup rsi 70 and stoch 80)
+highestTops_m = request.security(syminfo.tickerid, "M", stochBelow80 and rsiOverBought)
+plotshape(
+	 sidewaysMarket_2w ? na : plotOnce(highestTops_m),
+	 title="RSI Overbough and Stoch leaving Overbough Region (M)",
+	 text="sell",
+	 style=shape.labeldown,
+	 location=location.abovebar,
+	 color=bearColor,
+	 textcolor=textColor
+	 )
+
+//stochLeavingBoughtArea_2w = request.security(syminfo.tickerid, "2W", (stochFalling[2] or stochFalling[1] or stochFalling) and stochCrossUnder80)
+
+// Weekly RSI and Stoch overbought and Stoch Fast line crossing down Slow line. 
+rsiAndStochOverbought_w = request.security(syminfo.tickerid, "W", rsiOverBought and stochOverBought and stochKCrossDownD)
+plotshape(
+	 sidewaysMarket_2w ? na : plotOnce(rsiAndStochOverbought_w),
+	 title="RSI and Stoch overbought. Stoch crossing down Slow line (W)",
+	 text=sellText,
+	 style=shape.labeldown,
+	 location=location.abovebar,
+	 color=bearColorLight,
+	 textcolor=textColor
+	 )
+
+stochLeavingSoldArea_2w = request.security(syminfo.tickerid, "2W", stochRising and stochCrossOver20)
+plotshape(
+	 sidewaysMarket_2w ? na : plotOnce(stochLeavingSoldArea_2w),
+	 title="Stoch RSI UpTrend Zone (2W)",
+	 text=buyText,
+	 style=shape.labelup,
+	 location=location.belowbar,
+	 color=bullColorLight,
+	 textcolor=textColor
+	 )
+
+//------------------------------------------------------------------------------
+////////////////////
+// RSI DIVERGENCE //
+////////////////////
+
+showDivergence = true
+lookbackRight = 5
+lookbackLeft = 5
+rangeUpper = 60
+rangeLower = 5
+noneColor = color.new(color.white, 100)
+
+plFound = na(ta.pivotlow(rsi, lookbackLeft, lookbackRight)) ? false : true
+phFound = na(ta.pivothigh(rsi, lookbackLeft, lookbackRight)) ? false : true
+_inRange(cond) =>
+	bars = ta.barssince(cond == true)
+	rangeLower <= bars and bars <= rangeUpper
+
+//------------------------------------------------------------------------------
+// Regular Bullish RSI Divergence
+// rsi: Higher Low
+rsiHL = rsi[lookbackRight] > ta.valuewhen(plFound, rsi[lookbackRight], 1) and _inRange(plFound[1])
+
+// Price: Lower Low
+priceLL = low[lookbackRight] < ta.valuewhen(plFound, low[lookbackRight], 1)
+bullCondAlert = priceLL and rsiHL and plFound
+bullishDivergence = showDivergence and bullCondAlert
+
+lookbackOffset = (-lookbackRight * 14) / getDaysForTimeframe()
+rsiPlot_2w = request.security(syminfo.tickerid, "2W", rsi[lookbackRight])
+
+bullishDivergence_2w = request.security(syminfo.tickerid, "2W", bullishDivergence)
+plotshape(
+	 plotOnce(bullishDivergence_2w) ? rsiPlot_2w : na,
+	 offset=lookbackOffset,
+	 title="Bullish RSI Divergence (2W)",
+	 text=buyText,
+	 style=shape.labelup,
+	 location=location.belowbar,
+	 color=bullColor,
+	 textcolor=textColor
+	 )
+
+//------------------------------------------------------------------------------
+// Regular Bearish RSI Divergence
+// rsi: Lower High
+
+rsiLH = rsi[lookbackRight] < ta.valuewhen(phFound, rsi[lookbackRight], 1) and _inRange(phFound[1])
+
+// Price: Higher High
+priceHH = high[lookbackRight] > ta.valuewhen(phFound, high[lookbackRight], 1)
+
+bearCondAlert = priceHH and rsiLH and phFound
+bearishDivergence = showDivergence and bearCondAlert
+
+bearishDivergence_2w = request.security(syminfo.tickerid, "2W", bearishDivergence)
+plotshape(
+	 plotOnce(bearishDivergence_2w) ? rsiPlot_2w : na,
+	 offset=lookbackOffset,
+	 title="Bearish RSI Divergence  (2W)",
+	 text="sell",
+	 style=shape.labeldown,
+	 location=location.abovebar,
+	 color=bearColor,
+     textcolor=textColor
+     )
+
+alertcondition(bullCondAlert, title='Regular Bullish Divergence', message="Found a new Regular Bullish Divergence, `Pivot Lookback Right` number of bars to the left of the current bar.")
+alertcondition(bearCondAlert, title='Regular Bearish Divergence', message='Found a new Regular Bearish Divergence, `Pivot Lookback Right` number of bars to the left of the current bar.')

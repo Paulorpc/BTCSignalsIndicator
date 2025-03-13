@@ -1,5 +1,5 @@
 //@version=5
-indicator("Paulo's Signals Indicator", overlay=true)
+indicator("BTC signals indicator", overlay=true)
 
 ////////////
 // PARAMS //
